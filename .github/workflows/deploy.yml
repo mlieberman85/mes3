@@ -34,7 +34,8 @@ jobs:
 
       - name: Install binaryen (wasm-opt)
         run: |
-          sudo apt-get update && sudo apt-get install -y binaryen
+          curl -L https://github.com/WebAssembly/binaryen/releases/download/version_121/binaryen-version_121-x86_64-linux.tar.gz | tar xz
+          echo "$PWD/binaryen-version_121/bin" >> $GITHUB_PATH
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

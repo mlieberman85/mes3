@@ -100,8 +100,8 @@ impl Cpu {
 
     // -- Memory access helpers --
 
-    pub fn read(&self, bus: &Bus, addr: u16) -> u8 {
-        bus.read(addr)
+    pub fn read(&self, bus: &mut Bus, addr: u16) -> u8 {
+        bus.read_mut(addr)
     }
 
     pub fn read_u16(&self, bus: &Bus, addr: u16) -> u16 {

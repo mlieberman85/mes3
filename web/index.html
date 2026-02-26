@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NES Emulator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div id="screen-container">
+      <canvas id="screen" width="256" height="240"></canvas>
+    </div>
+    <div id="controls">
+      <button id="btn-load-rom">Load ROM</button>
+      <button id="btn-reset" disabled>Reset</button>
+      <button id="btn-mute">Mute</button>
+      <button id="btn-save-state" disabled>Save State</button>
+      <button id="btn-load-state" disabled>Load State</button>
+      <button id="btn-settings">Settings</button>
+      <input type="file" id="rom-input" accept=".nes" hidden>
+    </div>
+    <div id="status-bar">
+      <span id="status-text">No ROM loaded</span>
+      <span id="fps-counter"></span>
+    </div>
+    <div id="save-state-panel" class="panel hidden">
+      <h3>Save States</h3>
+      <div id="save-state-list"></div>
+    </div>
+    <div id="settings-panel" class="panel hidden">
+      <h3>Input Settings</h3>
+      <div id="key-mappings"></div>
+    </div>
+    <div id="error-overlay" class="hidden">
+      <p id="error-message"></p>
+      <button id="btn-dismiss-error">OK</button>
+    </div>
+  </div>
+  <script type="module" src="src/main.ts"></script>
+</body>
+</html>

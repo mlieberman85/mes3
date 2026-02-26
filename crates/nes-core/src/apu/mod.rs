@@ -10,6 +10,49 @@ use noise::NoiseChannel;
 use pulse::PulseChannel;
 use triangle::TriangleChannel;
 
+/// First-order IIR filter (used for NES analog output stage emulation).
+#[derive(Clone)]
+struct FirstOrderFilter {
+    prev_input: f32,
+    prev_output: f32,
+    alpha: f32,
+    high_pass: bool,
+}
+
+impl FirstOrderFilter {
+    fn high_pass(cutoff: f32, sample_rate: f32) -> Self {
+        let alpha = 1.0 / (1.0 + core::f32::consts::TAU * cutoff / sample_rate);
+        Self {
+            prev_input: 0.0,
+            prev_output: 0.0,
+            alpha,
+            high_pass: true,
+        }
+    }
+
+    fn low_pass(cutoff: f32, sample_rate: f32) -> Self {
+        let alpha =
+            core::f32::consts::TAU * cutoff / (core::f32::consts::TAU * cutoff + sample_rate);
+        Self {
+            prev_input: 0.0,
+            prev_output: 0.0,
+            alpha,
+            high_pass: false,
+        }
+    }
+
+    fn apply(&mut self, sample: f32) -> f32 {
+        let output = if self.high_pass {
+            self.alpha * (self.prev_output + sample - self.prev_input)
+        } else {
+            self.alpha * sample + (1.0 - self.alpha) * self.prev_output
+        };
+        self.prev_input = sample;
+        self.prev_output = output;
+        output
+    }
+}
+
 /// Length counter lookup table (used when writing register 3 of pulse/triangle/noise).
 pub static LENGTH_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
@@ -52,12 +95,17 @@ pub struct Apu {
     pub status: u8,
     /// Even/odd cycle tracking for APU cycle (pulse/noise tick on even).
     even_cycle: bool,
+    /// NES analog output filters (90 Hz HP → 440 Hz HP → 14 kHz LP).
+    filter_hp90: FirstOrderFilter,
+    filter_hp440: FirstOrderFilter,
+    filter_lp14k: FirstOrderFilter,
 }
 
 impl Apu {
     pub fn new() -> Self {
         let sample_rate = 48000;
         let cpu_clock = 1_789_773.0;
+        let sr = sample_rate as f32;
         Self {
             pulse1: PulseChannel::new(false),
             pulse2: PulseChannel::new(true),
@@ -75,6 +123,9 @@ impl Apu {
             dmc_irq: false,
             status: 0,
             even_cycle: false,
+            filter_hp90: FirstOrderFilter::high_pass(90.0, sr),
+            filter_hp440: FirstOrderFilter::high_pass(440.0, sr),
+            filter_lp14k: FirstOrderFilter::low_pass(14_000.0, sr),
         }
     }
 
@@ -93,6 +144,10 @@ impl Apu {
         self.dmc_irq = false;
         self.status = 0;
         self.even_cycle = false;
+        let sr = self._sample_rate as f32;
+        self.filter_hp90 = FirstOrderFilter::high_pass(90.0, sr);
+        self.filter_hp440 = FirstOrderFilter::high_pass(440.0, sr);
+        self.filter_lp14k = FirstOrderFilter::low_pass(14_000.0, sr);
     }
 
     /// Advance the APU by the given number of CPU cycles.
@@ -125,7 +180,11 @@ impl Apu {
             self.sample_accumulator += 1.0;
             if self.sample_accumulator >= self.cycles_per_sample {
                 self.sample_accumulator -= self.cycles_per_sample;
-                let sample = self.mix();
+                let raw = self.mix();
+                // NES analog output filter chain: HP 90Hz → HP 440Hz → LP 14kHz
+                let s = self.filter_hp90.apply(raw);
+                let s = self.filter_hp440.apply(s);
+                let sample = self.filter_lp14k.apply(s);
                 self.sample_buffer.push(sample);
             }
         }

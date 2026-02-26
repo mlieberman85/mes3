@@ -32,6 +32,11 @@ export async function initAudio(): Promise<void> {
   workletNode = new AudioWorkletNode(audioCtx, 'nes-audio-processor');
   workletNode.connect(audioCtx.destination);
 
+  // Pre-fill the ring buffer with ~2048 samples of silence to provide
+  // headroom before the first real samples arrive, preventing startup clicks.
+  const prefill = new Float32Array(2048);
+  workletNode.port.postMessage(prefill, [prefill.buffer]);
+
   initialized = true;
 }
 

@@ -9,6 +9,9 @@ release/
 # WASM build output
 web/pkg/
 
+# Vite build output
+web/dist/
+
 # Node
 node_modules/
 

@@ -8,7 +8,7 @@ use crate::mappers::{self, Mapper, Mirroring};
 pub enum RomLoadError {
     /// Not a valid iNES file (bad magic bytes or truncated).
     InvalidFormat,
-    /// Mapper number is not in the supported set {0, 1, 2, 3, 4}.
+    /// Mapper number is not supported.
     UnsupportedMapper(u8),
     /// ROM is PAL region (not supported).
     PalNotSupported,

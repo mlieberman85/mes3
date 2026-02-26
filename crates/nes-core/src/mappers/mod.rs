@@ -1,4 +1,5 @@
 pub mod cnrom;
+pub mod gxrom;
 pub mod mmc1;
 pub mod mmc3;
 pub mod nrom;
@@ -56,6 +57,7 @@ pub fn create_mapper(
         2 => Ok(Box::new(uxrom::UxRom::new(header, prg_rom))),
         3 => Ok(Box::new(cnrom::Cnrom::new(header))),
         4 => Ok(Box::new(mmc3::Mmc3::new(header, prg_rom))),
+        66 => Ok(Box::new(gxrom::GxRom::new(header))),
         _ => Err(RomLoadError::UnsupportedMapper(number)),
     }
 }

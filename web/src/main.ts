@@ -7,7 +7,7 @@
 
 import init, { Emulator } from '../pkg/nes_wasm.js';
 import { initRenderer, renderFrame, captureScreenshot } from './renderer.js';
-import { InputHandler } from './input.js';
+import { InputHandler, type ButtonId } from './input.js';
 import {
   initUi,
   handleRomLoadResult,
@@ -16,6 +16,7 @@ import {
   setFps,
   setRomLoaded,
   updateSaveStateList,
+  updateSlotIndicators,
   toggleSaveStatePanel,
 } from './ui.js';
 import { initAudio, sendSamples, suspend, resume, isInitialized } from './audio.js';
@@ -24,6 +25,8 @@ import {
   computeRomHash,
   saveState as storageSaveState,
   loadState as storageLoadState,
+  loadSlot,
+  getOccupiedSlots,
   listStates,
   deleteState,
   renameState,
@@ -127,6 +130,35 @@ function onButtonChange(button: number, pressed: boolean): void {
   emulator?.set_button_state(button, pressed);
 }
 
+/**
+ * Handle keyboard shortcuts for save-state slots.
+ * Shift+1-5: save to slot, F5-F9: save to slot
+ * 1-5 (no modifier): load from slot, F6-F10 would conflict, so just 1-5
+ */
+function setupSlotShortcuts(): void {
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    // Don't intercept if a rebind prompt is active or input is focused
+    if (document.activeElement?.tagName === 'INPUT') return;
+
+    const digit = e.code.match(/^Digit([1-5])$/)?.[1];
+    if (!digit) return;
+
+    const slot = parseInt(digit, 10);
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      saveToSlot(slot);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+      // Only intercept bare digit keys when a ROM is loaded
+      if (!emulator || !currentRomHash) return;
+      e.preventDefault();
+      activeSlot = slot;
+      loadFromSlot(slot);
+      refreshSlotIndicators();
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Save / Load state (persistent via IndexedDB)
 // ---------------------------------------------------------------------------
@@ -150,10 +182,20 @@ async function refreshSaveStateList(): Promise<void> {
   }
 }
 
+/** Currently selected save slot (1-5). */
+let activeSlot = 1;
+
 /**
  * Save emulator state to IndexedDB with a canvas screenshot.
  */
 async function onSaveState(): Promise<void> {
+  await saveToSlot(activeSlot);
+}
+
+/**
+ * Save emulator state to a specific numbered slot.
+ */
+async function saveToSlot(slot: number): Promise<void> {
   if (!emulator || !currentRomHash) return;
 
   try {
@@ -166,9 +208,10 @@ async function onSaveState(): Promise<void> {
       // Screenshot capture is best-effort
     }
 
-    await storageSaveState(currentRomHash, stateData, screenshot);
-    setStatus('State saved');
+    await storageSaveState(currentRomHash, stateData, screenshot, undefined, slot);
+    setStatus(`Saved to slot ${slot}`);
     await refreshSaveStateList();
+    await refreshSlotIndicators();
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     showError(`Failed to save state: ${msg}`);
@@ -176,31 +219,43 @@ async function onSaveState(): Promise<void> {
 }
 
 /**
- * Quick-load: load the most recent save state for the current ROM.
+ * Quick-load: load from the active slot.
  */
 async function onLoadState(): Promise<void> {
+  await loadFromSlot(activeSlot);
+}
+
+/**
+ * Load emulator state from a specific numbered slot.
+ */
+async function loadFromSlot(slot: number): Promise<void> {
   if (!emulator || !currentRomHash) return;
 
   try {
-    const states = await listStates(currentRomHash);
-    if (states.length === 0) {
-      setStatus('No save states found');
-      return;
-    }
-
-    // states are sorted most-recent-first by listStates
-    const latest = states[0];
-    const data = await storageLoadState(latest.id);
+    const data = await loadSlot(currentRomHash, slot);
     if (!data) {
-      setStatus('Save state not found');
+      setStatus(`Slot ${slot} is empty`);
       return;
     }
 
     const ok = emulator.load_state(data.stateData);
-    setStatus(ok ? 'State loaded' : 'Failed to load state');
+    setStatus(ok ? `Loaded slot ${slot}` : 'Failed to load state');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     showError(`Failed to load state: ${msg}`);
+  }
+}
+
+/**
+ * Update the slot indicators in the UI to show which slots have data.
+ */
+async function refreshSlotIndicators(): Promise<void> {
+  if (!currentRomHash) return;
+  try {
+    const occupied = await getOccupiedSlots(currentRomHash);
+    updateSlotIndicators(occupied, activeSlot);
+  } catch {
+    // Non-fatal
   }
 }
 
@@ -328,8 +383,9 @@ async function onRomSelected(data: Uint8Array): Promise<void> {
   setRomLoaded(true);
   setStatus(sramRestored ? 'ROM loaded -- SRAM restored' : 'ROM loaded -- running');
 
-  // Refresh save-state list for this ROM
+  // Refresh save-state list and slot indicators for this ROM
   await refreshSaveStateList();
+  await refreshSlotIndicators();
   toggleSaveStatePanel(false);
 
   startLoop();
@@ -381,6 +437,19 @@ async function main(): Promise<void> {
     onLoadStateById,
     onDeleteState,
     onRenameState,
+    onSlotSelect: (slot: number) => {
+      activeSlot = slot;
+      refreshSlotIndicators();
+    },
+    getKeyMappings: () => inputHandler?.getKeyMappings() ?? {},
+    setKeyMapping: (code, button, oldCode) => {
+      if (!inputHandler) return;
+      const mappings = inputHandler.getKeyMappings();
+      delete mappings[oldCode];
+      mappings[code] = button as ButtonId;
+      inputHandler.setKeyMappings(mappings);
+      inputHandler.saveConfig();
+    },
   });
 
   // Pause/resume on tab visibility
@@ -421,6 +490,9 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error('Storage initialization failed:', err);
   }
+
+  // Save-state slot keyboard shortcuts (Shift+1-5 save, 1-5 load)
+  setupSlotShortcuts();
 
   setStatus('Ready -- load a ROM to start');
 }

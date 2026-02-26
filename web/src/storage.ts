@@ -23,6 +23,8 @@ interface SaveStateRecord {
   timestamp: number;
   stateData: Uint8Array;
   screenshot: Blob | null;
+  /** Optional numbered slot (1-based). Null/undefined = unslotted save. */
+  slot?: number;
 }
 
 /** Shape returned by listStates (lightweight -- no binary payload). */
@@ -31,6 +33,7 @@ export interface SaveStateSummary {
   name: string;
   timestamp: number;
   hasScreenshot: boolean;
+  slot?: number;
 }
 
 /** Shape returned by loadState. */
@@ -99,15 +102,34 @@ export async function saveState(
   stateData: Uint8Array,
   screenshot: Blob | null,
   name?: string,
+  slot?: number,
 ): Promise<number> {
   const database = getDb();
 
+  // If saving to a numbered slot, overwrite the existing slot entry.
+  if (slot !== undefined) {
+    const existing = await findSlotRecord(romHash, slot);
+    if (existing !== null) {
+      const updated: SaveStateRecord & { id: number } = {
+        ...existing,
+        name: name ?? `Slot ${slot}`,
+        timestamp: Date.now(),
+        stateData,
+        screenshot,
+        slot,
+      };
+      await database.put(STORE_SAVE_STATES, updated);
+      return existing.id;
+    }
+  }
+
   const record: SaveStateRecord = {
     romHash,
-    name: name ?? `Save ${new Date().toLocaleString()}`,
+    name: name ?? (slot !== undefined ? `Slot ${slot}` : `Save ${new Date().toLocaleString()}`),
     timestamp: Date.now(),
     stateData,
     screenshot,
+    slot,
   };
 
   try {
@@ -121,6 +143,52 @@ export async function saveState(
     }
     throw err;
   }
+}
+
+/**
+ * Load the save state in a specific slot for a ROM.
+ */
+export async function loadSlot(
+  romHash: string,
+  slot: number,
+): Promise<SaveStateData | null> {
+  const record = await findSlotRecord(romHash, slot);
+  if (!record) return null;
+  return {
+    stateData: record.stateData,
+    name: record.name,
+    timestamp: record.timestamp,
+    screenshot: record.screenshot,
+  };
+}
+
+/**
+ * Return which slots (1-based) have data for a given ROM.
+ */
+export async function getOccupiedSlots(romHash: string): Promise<Set<number>> {
+  const states = await listStates(romHash);
+  const slots = new Set<number>();
+  for (const s of states) {
+    if (s.slot !== undefined) slots.add(s.slot);
+  }
+  return slots;
+}
+
+/** Find the record for a specific ROM+slot combination. */
+async function findSlotRecord(
+  romHash: string,
+  slot: number,
+): Promise<(SaveStateRecord & { id: number }) | null> {
+  const database = getDb();
+  const tx = database.transaction(STORE_SAVE_STATES, 'readonly');
+  const index = tx.store.index('romHash');
+  let cursor = await index.openCursor(romHash);
+  while (cursor) {
+    const rec = cursor.value as SaveStateRecord & { id: number };
+    if (rec.slot === slot) return rec;
+    cursor = await cursor.continue();
+  }
+  return null;
 }
 
 /**
@@ -163,6 +231,7 @@ export async function listStates(romHash: string): Promise<SaveStateSummary[]> {
       name: rec.name,
       timestamp: rec.timestamp,
       hasScreenshot: rec.screenshot !== null,
+      slot: rec.slot,
     });
     cursor = await cursor.continue();
   }

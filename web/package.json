@@ -1,0 +1,22 @@
+{
+  "name": "nes-emulator-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm:release && vite build",
+    "build:wasm": "cargo build --target wasm32-unknown-unknown -p nes-wasm && wasm-bindgen --out-dir pkg --target web ../target/wasm32-unknown-unknown/debug/nes_wasm.wasm",
+    "build:wasm:release": "cargo build --release --target wasm32-unknown-unknown -p nes-wasm && wasm-bindgen --out-dir pkg --target web ../target/wasm32-unknown-unknown/release/nes_wasm.wasm && wasm-opt -O3 pkg/nes_wasm_bg.wasm -o pkg/nes_wasm_bg.wasm",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4",
+    "vite": "^6.0",
+    "vite-plugin-wasm": "^3.4"
+  },
+  "dependencies": {
+    "idb": "^8.0"
+  }
+}

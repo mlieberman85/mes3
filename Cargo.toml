@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/nes-core", "crates/nes-wasm", "crates/nes-cli"]
+resolver = "2"

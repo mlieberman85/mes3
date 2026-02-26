@@ -23,6 +23,8 @@ class NesAudioProcessor extends AudioWorkletProcessor {
     this.writeIndex = 0;
     /** @type {number} */
     this.count = 0;
+    /** @type {number} Last valid sample for hold-on-underrun. */
+    this.lastSample = 0.0;
 
     this.port.onmessage = (event) => {
       const samples = event.data;
@@ -46,12 +48,13 @@ class NesAudioProcessor extends AudioWorkletProcessor {
     const channel = output[0];
     for (let i = 0; i < channel.length; i++) {
       if (this.count > 0) {
-        channel[i] = this.buffer[this.readIndex];
+        this.lastSample = this.buffer[this.readIndex];
+        channel[i] = this.lastSample;
         this.readIndex = (this.readIndex + 1) % RING_BUFFER_SIZE;
         this.count--;
       } else {
-        // Underrun -- output silence.
-        channel[i] = 0;
+        // Underrun -- hold last sample to avoid clicks.
+        channel[i] = this.lastSample;
       }
     }
 

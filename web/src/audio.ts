@@ -23,9 +23,10 @@ export async function initAudio(): Promise<void> {
 
   audioCtx = new AudioContext({ sampleRate: 48_000 });
 
-  // The worklet source is a TypeScript file that Vite will compile and serve.
-  // In production builds Vite handles the URL rewriting automatically.
-  const workletUrl = new URL('./audio-worklet.ts', import.meta.url).href;
+  // The worklet source lives in public/ as plain JS so it works both in dev
+  // (served as-is by Vite) and in production (copied to dist/ root).
+  // import.meta.env.BASE_URL is '/' in dev and '/mes3/' in production.
+  const workletUrl = import.meta.env.BASE_URL + 'audio-worklet.js';
   await audioCtx.audioWorklet.addModule(workletUrl);
 
   workletNode = new AudioWorkletNode(audioCtx, 'nes-audio-processor');

@@ -99,6 +99,9 @@ pub struct Apu {
     filter_hp90: FirstOrderFilter,
     filter_hp440: FirstOrderFilter,
     filter_lp14k: FirstOrderFilter,
+    /// Accumulator for averaging mixer output across CPU cycles (anti-alias).
+    mix_accumulator: f64,
+    mix_count: u32,
 }
 
 impl Apu {
@@ -126,6 +129,8 @@ impl Apu {
             filter_hp90: FirstOrderFilter::high_pass(90.0, sr),
             filter_hp440: FirstOrderFilter::high_pass(440.0, sr),
             filter_lp14k: FirstOrderFilter::low_pass(14_000.0, sr),
+            mix_accumulator: 0.0,
+            mix_count: 0,
         }
     }
 
@@ -148,6 +153,8 @@ impl Apu {
         self.filter_hp90 = FirstOrderFilter::high_pass(90.0, sr);
         self.filter_hp440 = FirstOrderFilter::high_pass(440.0, sr);
         self.filter_lp14k = FirstOrderFilter::low_pass(14_000.0, sr);
+        self.mix_accumulator = 0.0;
+        self.mix_count = 0;
     }
 
     /// Advance the APU by the given number of CPU cycles.
@@ -176,15 +183,21 @@ impl Apu {
             // Sync DMC IRQ flag
             self.dmc_irq = self.dmc.irq_flag;
 
-            // Downsample: accumulate and output samples at 48kHz
+            // Accumulate mixer output every CPU cycle for anti-alias averaging
+            self.mix_accumulator += self.mix() as f64;
+            self.mix_count += 1;
+
+            // Downsample: emit averaged sample at 48kHz
             self.sample_accumulator += 1.0;
             if self.sample_accumulator >= self.cycles_per_sample {
                 self.sample_accumulator -= self.cycles_per_sample;
-                let raw = self.mix();
+                let raw = (self.mix_accumulator / self.mix_count as f64) as f32;
+                self.mix_accumulator = 0.0;
+                self.mix_count = 0;
                 // NES analog output filter chain: HP 90Hz → HP 440Hz → LP 14kHz
                 let s = self.filter_hp90.apply(raw);
                 let s = self.filter_hp440.apply(s);
-                let sample = self.filter_lp14k.apply(s);
+                let sample = self.filter_lp14k.apply(s).clamp(-1.0, 1.0);
                 self.sample_buffer.push(sample);
             }
         }

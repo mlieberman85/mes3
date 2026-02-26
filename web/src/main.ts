@@ -67,27 +67,37 @@ function frameLoop(now: number): void {
 
   if (!emulator || !wasmMemory || !running) return;
 
-  // Drift-compensated timing: skip frame if we're ahead of schedule
   const elapsed = now - lastFrameTime;
   if (elapsed < FRAME_PERIOD_MS * 0.95) return;
 
-  lastFrameTime = now;
+  // Accumulator-based timing: run enough frames to stay in sync with
+  // real time.  NES runs at 60.0988 Hz but rAF fires at the display
+  // refresh rate (~60 Hz), so we occasionally need to run 2 frames in
+  // a single callback to keep the audio buffer fed.
+  let framesToRun = Math.floor(elapsed / FRAME_PERIOD_MS);
+  if (framesToRun > 3) {
+    // Cap catch-up to avoid spiral-of-death after long pauses
+    framesToRun = 3;
+    lastFrameTime = now - FRAME_PERIOD_MS;
+  }
+  lastFrameTime += framesToRun * FRAME_PERIOD_MS;
 
-  // Tick the emulator
-  const ok = emulator.run_frame();
-  if (!ok) return;
+  for (let f = 0; f < framesToRun; f++) {
+    const ok = emulator.run_frame();
+    if (!ok) return;
 
-  // Render
-  const ptr = emulator.frame_buffer_ptr();
-  renderFrame(wasmMemory, ptr);
-
-  // Audio: send this frame's samples to the worklet
-  if (isInitialized() && !muted) {
-    const samples = emulator.audio_buffer();
-    if (samples.length > 0) {
-      sendSamples(samples);
+    // Send audio for every emulated frame to keep the buffer fed
+    if (isInitialized() && !muted) {
+      const samples = emulator.audio_buffer();
+      if (samples.length > 0) {
+        sendSamples(samples);
+      }
     }
   }
+
+  // Render only the last frame (no wasted GPU work)
+  const ptr = emulator.frame_buffer_ptr();
+  renderFrame(wasmMemory, ptr);
 
   // Poll gamepad (must happen every frame)
   inputHandler?.pollGamepad();

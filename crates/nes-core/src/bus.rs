@@ -252,6 +252,14 @@ impl Bus {
             buf.extend_from_slice(&(mapper_state.len() as u32).to_le_bytes());
             buf.extend_from_slice(&mapper_state);
             buf.extend_from_slice(&cart.sram);
+            // Save CHR RAM if present (tile graphics are mutable for CHR-RAM games)
+            if cart.chr_is_ram {
+                buf.push(1); // flag: CHR RAM data follows
+                buf.extend_from_slice(&(cart.chr_rom.len() as u32).to_le_bytes());
+                buf.extend_from_slice(&cart.chr_rom);
+            } else {
+                buf.push(0); // flag: no CHR RAM data
+            }
         }
     }
 
@@ -287,6 +295,27 @@ impl Bus {
             }
             cart.sram.copy_from_slice(&data[*cursor..*cursor + 8192]);
             *cursor += 8192;
+            // Restore CHR RAM if present in save state
+            if *cursor < data.len() && data[*cursor] == 1 {
+                *cursor += 1; // skip flag byte
+                if *cursor + 4 > data.len() {
+                    return false;
+                }
+                let chr_len =
+                    u32::from_le_bytes(data[*cursor..*cursor + 4].try_into().unwrap()) as usize;
+                *cursor += 4;
+                if *cursor + chr_len > data.len() {
+                    return false;
+                }
+                if cart.chr_is_ram && cart.chr_rom.len() == chr_len {
+                    cart.chr_rom.copy_from_slice(&data[*cursor..*cursor + chr_len]);
+                }
+                *cursor += chr_len;
+            } else if *cursor < data.len() {
+                *cursor += 1; // skip flag byte (0 = no CHR RAM)
+            }
+            // Older save states without the CHR RAM flag are handled implicitly
+            // (cursor is already past SRAM)
         }
 
         true

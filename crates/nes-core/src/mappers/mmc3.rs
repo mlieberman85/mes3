@@ -210,7 +210,7 @@ impl Mapper for Mmc3 {
     }
 
     fn save_state(&self) -> Vec<u8> {
-        let mut state = Vec::with_capacity(16);
+        let mut state = Vec::with_capacity(17);
         state.push(self.bank_select);
         state.extend_from_slice(&self.bank_registers);
         state.push(self.prg_mode as u8);
@@ -220,6 +220,11 @@ impl Mapper for Mmc3 {
         state.push(self.irq_enabled as u8);
         state.push(self.irq_reload as u8);
         state.push(self.irq_pending as u8);
+        // Mirroring: 0 = Horizontal, 1 = Vertical
+        state.push(match self.mirroring {
+            Mirroring::Vertical => 1,
+            _ => 0,
+        });
         state
     }
 
@@ -235,6 +240,14 @@ impl Mapper for Mmc3 {
             self.irq_reload = data[14] != 0;
             if data.len() > 15 {
                 self.irq_pending = data[15] != 0;
+            }
+            // Restore mirroring (added after irq_pending)
+            if data.len() > 16 {
+                self.mirroring = if data[16] != 0 {
+                    Mirroring::Vertical
+                } else {
+                    Mirroring::Horizontal
+                };
             }
         }
     }

@@ -249,6 +249,12 @@ async function loadFromSlot(slot: number): Promise<void> {
     }
 
     const ok = emulator.load_state(data.stateData);
+    if (ok) {
+      // Run one frame to let the PPU complete a full rendering pass,
+      // avoiding a glitched first frame when state was saved mid-scanline.
+      emulator.run_frame();
+      emulator.audio_buffer(); // discard audio from the catch-up frame
+    }
     setStatus(ok ? `Loaded slot ${slot}` : 'Failed to load state');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -283,6 +289,10 @@ async function onLoadStateById(id: number): Promise<void> {
     }
 
     const ok = emulator.load_state(data.stateData);
+    if (ok) {
+      emulator.run_frame();
+      emulator.audio_buffer();
+    }
     setStatus(ok ? `Loaded: ${data.name}` : 'Failed to load state');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -372,17 +382,19 @@ async function onRomSelected(data: Uint8Array): Promise<void> {
   // The iNES header byte at offset 6 has bit 1 set if battery RAM is present.
   hasBatteryRam = data.length > 6 ? (data[6] & 0x02) !== 0 : false;
 
-  // Reset first, then restore SRAM (reset would wipe restored state).
   emulator.reset();
 
   // Attempt to restore battery-backed SRAM from a previous session.
-  // load_state is called *after* reset so the restored SRAM is not cleared.
+  // load_state restores the full emulator state (including SRAM), so we
+  // call reset() again afterward to put CPU/PPU/APU back to power-on
+  // while keeping the restored SRAM data intact.
   let sramRestored = false;
   if (hasBatteryRam && currentRomHash) {
     try {
       const sramState = await loadSram(currentRomHash);
       if (sramState) {
         emulator.load_state(sramState);
+        emulator.reset();
         sramRestored = true;
       }
     } catch (err) {
